@@ -1,20 +1,17 @@
-import copy, json
-from quixstreams import Application
-
-pos_id = "490010"
+import copy, os
 
 class Order:
 	body = None
 
 	def __init__(self, order_id, description):
 		self.body = {
-			"merchantPosId": pos_id,
+			"merchantPosId": os.getenv("PAYU_POS_ID"),
 			"description": str( description ),
 			"extOrderId": str( order_id ),
 			"currencyCode": "PLN",
 			"totalAmount": 0,
-			"continueUrl": "http://35.211.136.14/continue",
-			"notifyUrl": "http://35.211.136.14/notification",
+			"continueUrl": os.getenv("PAYU_CONTINUE_URL"),
+			"notifyUrl": os.getenv("PAYU_NOTIFY_URL"),
 			"products": []
 		}
 
@@ -40,19 +37,3 @@ class Order:
 		body = copy.deepcopy(self.body)
 		body["totalAmount"] = str(int(body["totalAmount"]))
 		return body
-
-app = Application(
-	broker_address="localhost:9092"
-)
-
-mail = input("Mail: ")
-product = input("Produkt: ")
-order = Order(input("orderId: "), "Opłata karnetu")
-order.set_customer("420", mail, input("Imie: "), input("Nazwisko: "), "127.0.0.1")
-order.add_product(product, float(input("Kwota: ")), 1)
-
-with app.get_producer() as producer:
-	producer.produce(
-		topic="create-payment",
-		value=json.dumps(order.get_body()).encode("utf-8")
-	)
