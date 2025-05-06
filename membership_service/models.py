@@ -11,7 +11,8 @@ class Membership(Base):
     email = Column(String, index=True)
     type = Column(String)
     purchase_date = Column(Date)
-    active = Column(String)     # 'inactive', 'paid', 'active'
+    expiration_date = Column(Date)
+    status = Column(String)     # 'inactive', 'paid', 'active'
 
     __table_args__ = (
         CheckConstraint("type IN ('1m', '3m', '12m')", name="valid_membership_type"),
