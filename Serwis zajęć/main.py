@@ -1,9 +1,8 @@
-from fastapi import FastAPI, HTTPException
-from models import Base, RegistrationRequest
+from fastapi import FastAPI
+from models import Base, RegistrationRequest, CreateClassRequest, CancelClassRequest
 from database import engine, SessionLocal
-from services import register_client, unregister_client, get_class_list, get_class_participants
+from services import join_class, create_class, get_class_list, get_class_participants, cancel_class
 from aiokafka import AIOKafkaProducer
-import asyncio
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
@@ -21,15 +20,20 @@ async def shutdown_event():
     await producer.stop()
 
 
-@app.post("/register")
-async def register(req: RegistrationRequest):
+@app.post("/join-class")
+async def join_clas(req: RegistrationRequest):
     with SessionLocal() as db:
-        return await register_client(db, req, producer)
+        return await join_class(db, req, producer)
     
-@app.post("/unregister")
-async def unregister(req: RegistrationRequest):
+@app.post("/create-class")  
+async def create_clas(req: CreateClassRequest):
     with SessionLocal() as db:
-        return await unregister_client(db, req, producer)
+        return await create_class(db, req, producer)
+    
+@app.delete("/cancel-class")
+async def cancel_clas(req: CancelClassRequest):
+    with SessionLocal() as db:
+        return await cancel_class(db, req, producer)
 
 @app.get("/classes")
 def list_classes():

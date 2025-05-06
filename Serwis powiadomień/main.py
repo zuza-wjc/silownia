@@ -19,15 +19,36 @@ async def main():
             event = json.loads(msg.value)
             if event.get("event") == "client_registered":
                 trainer_id = event["trainer_id"]
-                client_name = event["client_name"]
+                client_id = event["client_id"]
                 class_title = event["class_title"]
-                print(f"[NOTIFY] Trener {trainer_id}: Nowy zapis – {client_name} na {class_title}")
+                print(f"[NOTIFY] Trener {trainer_id}: Nowy zapis – {client_id} na {class_title}")
 
             elif event.get("event") == "client_unregistered":
                 trainer_id = event["trainer_id"]
-                client_name = event["client_name"]
+                client_id = event["client_id"]
                 class_title = event["class_title"]
-                print(f"[NOTIFY] Trener {trainer_id}: Rezygnacja – {client_name} z {class_title}")
+                print(f"[NOTIFY] Trener {trainer_id}: Rezygnacja – {client_id} z {class_title}")
+
+            elif event.get("event") == "create_class":
+                id = event["id"]
+                trainer_id = event["trainer_id"]
+                title = event["title"]
+                capacity = event["capacity"]
+                print(f"[NOTIFY] Trenet {trainer_id}: Utworzono nowe zajęcia {title} o id: {id}, z ilością miejsc {capacity}")
+
+            elif event.get("event") == "cancle_class":
+                to = event["to"]
+                subject = event["subject"]
+                body = event["body"]
+                print(f"[NOTIFY] {subject} \n {body}")
+
+            elif event.get("event") == "send-mail":
+                to = event["to"]
+                subject = event["subject"]
+                body = event["body"]
+                print(f"[NOTIFY] {subject} \n {body}")
+
+                         
     finally:
         await consumer.stop()
 
