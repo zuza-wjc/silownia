@@ -9,6 +9,7 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id = Column(Integer, primary_key=True, index=True)
+    internal_id = Column(String) # z serwisu ktory rzada platnosci
     email = Column(String)
     amount = Column(Float)
     description = Column(String)

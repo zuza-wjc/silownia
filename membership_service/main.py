@@ -26,6 +26,34 @@ producer = KafkaProducer(
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
+consumer = KafkaConsumer(
+    'payment-status',
+    bootstrap_servers='localhost:9092',
+    value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+    key_deserializer=lambda k: k.decode('utf-8') if k else None,
+    group_id='membership-group'
+)
+
+def consume_payment_events():
+    for msg in consumer:
+        event = msg.value
+        key = msg.key
+
+        with SessionLocal() as db:
+            if event.get("status") == "created":
+                print(f"Płatność utworzona dla karnetu: {event.get('internalId')}, link do płatności: {event.get('redirect')}")
+
+            elif event.get("status") == "success":
+                crud.update_membership_status(db, event.get("internalId"), "paid")
+                db.commit()
+                print(f"Płatność zakończona pomyślnie dla karnetu: {event.get('internalId')}")
+                
+            elif event.get("status") == "failed":
+                crud.delete_membership_by_email(db, event.get("internalId"))
+                db.commit()
+                print(f"Płatność nieudana dla karnetu: {event.get('internalId')}")
+
+
 MEMBERSHIP_PRICES = {
     "1m": 1.0,
     "3m": 3.0,
@@ -62,29 +90,28 @@ def buy_membership(
         raise HTTPException(status_code=400, detail="Klient już ma karnet.")
     
     membership = crud.create_membership(db, email, type.value, date.today())
-    
+
     try:
-        event_type = f"MembershipCreated{payment_method.value}"
-
-        producer.send("membership-events", {
-            "event_type": event_type,
-            "email": email,
-            "type": type.value,
-            "price": MEMBERSHIP_PRICES[type.value],
-            "description": "Zakup karnetu",
-            "payment_method": payment_method.value
-        })
-
-        # producer.send("membership-events",
-        #     key="??",
-        #     value={
-        #         "event_type": event_type,
-        #         "email": email,
-        #         "type": type.value,
-        #         "price": MEMBERSHIP_PRICES[type.value],
-        #         "description": "Zakup karnetu",
-        #         "payment_method": payment_method.value
-        # })
+        producer.send("create-payment",
+            key=payment_method.value.encode("utf-8"),
+            value={
+                "internalId": str(membership.id),
+                "description": f"Zakup karnetu - {type.value}",
+                "customer": {
+                    "id": "abcdefg123",
+                    "ip": "172.0.0.1",
+                    "email": email,
+                    "firstName": "Janusz",
+                    "lastName": "Kowalski"
+                },
+                "products": [
+                    {
+                        "name": f"Karnet - {type.value}",
+                        "price": MEMBERSHIP_PRICES[type.value]
+                    }
+                ]
+            }
+        )
     except Exception as e:
         crud.delete_membership_by_email(db, email)
         db.commit()
@@ -129,22 +156,3 @@ def cancel_membership(email: str = Query(...), db: Session = Depends(get_db)):
     if not deleted:
         raise HTTPException(status_code=404, detail="Nie znaleziono karnetu do usunięcia.")
     return {"message": f"Karnet dla {email} został anulowany."}
-
-
-consumer = KafkaConsumer(
-    'payment-events',
-    bootstrap_servers='localhost:9092',
-    value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-    group_id='membership-group'
-)
-
-def consume_payment_events():
-    for msg in consumer:
-        event = msg.value
-        with SessionLocal() as db:
-            if event.get("event_type") == "PaymentFailed":
-                crud.delete_membership_by_email(db, event.get("email"))
-                db.commit()
-            elif event.get("event_type") == "PaymentSuccessful":
-                crud.update_membership_status(db, event.get("email"), "paid")
-                db.commit()
