@@ -9,12 +9,18 @@ import json
 import threading
 from contextlib import asynccontextmanager
 from enum import Enum
+import os, asyncio
+
+pending: dict[str, asyncio.Future] = {}
+loop: asyncio.AbstractEventLoop | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     def run_consumer():
         consume_payment_events()
 
+    global loop
+    loop = asyncio.get_running_loop()
     thread = threading.Thread(target=run_consumer, daemon=True)
     thread.start()
     yield
@@ -22,13 +28,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 producer = KafkaProducer(
-    bootstrap_servers='localhost:9092',
+    bootstrap_servers=os.getenv("KAFKA_BROKER"),
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
 consumer = KafkaConsumer(
     'payment-status',
-    bootstrap_servers='localhost:9092',
+    bootstrap_servers=os.getenv("KAFKA_BROKER"),
+    auto_offset_reset="earliest",
+    enable_auto_commit=True,
     value_deserializer=lambda m: json.loads(m.decode('utf-8')),
     key_deserializer=lambda k: k.decode('utf-8') if k else None,
     group_id='membership-group'
@@ -42,6 +50,13 @@ def consume_payment_events():
         with SessionLocal() as db:
             if event.get("status") == "created":
                 print(f"Płatność utworzona dla karnetu: {event.get('internalId')}, link do płatności: {event.get('redirect')}")
+                internal_id = event.get("internalId")
+                if not internal_id:
+                    continue
+
+                fut = pending.get(internal_id)
+                if fut and not fut.done():
+                    loop.call_soon_threadsafe(fut.set_result, event)
 
             elif event.get("status") == "success":
                 crud.update_membership_status(db, event.get("internalId"), "paid")
@@ -79,7 +94,7 @@ class PaymentMethod(str, Enum):
     payu = "PayU"
 
 @app.post("/buy-membership/")
-def buy_membership(
+async def buy_membership(
     email: str, 
     type: MembershipType, 
     payment_method: PaymentMethod,
@@ -90,12 +105,13 @@ def buy_membership(
         raise HTTPException(status_code=400, detail="Klient już ma karnet.")
     
     membership = crud.create_membership(db, email, type.value, date.today())
+    internal_id = str(membership.id)
 
     try:
         producer.send("create-payment",
             key=payment_method.value.encode("utf-8"),
             value={
-                "internalId": str(membership.id),
+                "internalId": internal_id,
                 "description": f"Zakup karnetu - {type.value}",
                 "customer": {
                     "id": "abcdefg123",
@@ -117,11 +133,23 @@ def buy_membership(
         db.commit()
         raise HTTPException(status_code=500, detail=f"Błąd przy tworzeniu płatności: {e}")
 
-    return {
-        "message": "Karnet kupiony. Przejdź do płatności.",
-        "membership": membership
-    }
+    fut = loop.create_future()
+    pending[internal_id] = fut
 
+    try:
+        result = await asyncio.wait_for(fut, timeout=10)
+        return {
+            "message": "Karnet kupiony. Przejdź do płatności.",
+            "membership": membership,
+            "redirect": result.get("redirect")
+        }
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=202,
+            detail=f"Płatność {internal_id} w toku - sprawdź później.",
+        )
+    finally:
+        pending.pop(internal_id, None)
 
 @app.get("/get-membership/")
 def get_membership(email: str, db: Session = Depends(get_db)):

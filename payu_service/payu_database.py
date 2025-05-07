@@ -41,7 +41,7 @@ def insert_payment(orderId, payuId, userId, internalId, amount, mail, userName):
 		cursor = db.cursor()
 		cursor.execute(
 			"INSERT INTO payments(orderId, payuId, userId, internalId, amount, mail, userName, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
-			(orderId, payuId, userId, internalId, amount, mail, userName, "CREATED")
+			(orderId, payuId, userId, internalId, amount, mail, userName, "created")
 		)
 		cursor.close()
 		db.commit()

@@ -44,3 +44,12 @@ services:
       - PAYU_SECRET=${PAYU_SECRET}
       - PAYU_NOTIFY_URL=${PAYU_NOTIFY_URL}
       - PAYU_CONTINUE_URL=${PAYU_CONTINUE_URL}
+
+  membership_service:
+    image: membership_service
+    ports:
+      - 8001:8001
+    depends_on:
+      - broker
+    environment:
+      - KAFKA_BROKER=broker:29092

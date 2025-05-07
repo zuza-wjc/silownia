@@ -85,4 +85,4 @@ with app.get_consumer() as consumer:
 				validate(jsonObject, message_schema)
 				send_mail(jsonObject)
 			except Exception as error:
-				print("JSON Schema validation failed", error)
+				print("Error", error)

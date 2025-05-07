@@ -1,4 +1,4 @@
-FROM python:3.10
+FROM python:3.11-slim
 
 WORKDIR /app
 COPY . .
@@ -9,6 +9,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 RUN chmod +x start.sh
+
+ENV PYTHONUNBUFFERED=1
 
 #CMD ["python", "notification_service.py"]
 ENTRYPOINT ["./start.sh"]

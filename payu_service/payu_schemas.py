@@ -26,9 +26,9 @@ status_schema = {
         "status": {
             "type": "string",
             "enum": [
-                "CREATED",
-                "COMPLETED",
-                "CANCELED"
+                "created",
+                "success",
+                "failed"
             ]
         },
         "redirect": {

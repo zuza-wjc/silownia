@@ -15,19 +15,20 @@ load_dotenv()
 
 class NotificationObserver(Observer):
 	def update(self, subject: Subject, data) -> None:
-		print("UPDATE", data)
+		print("Payment status update", data)
 
-		payu_database.update_payment(data["orderId"], data["status"])
+		status = translate_status(data["status"])
+		payu_database.update_payment(data["orderId"], status)
 
 		dbData = payu_database.get_payment_by_order_id(data["orderId"])
 		produce_udpate(
 			dbData["internalId"],
 			dbData["orderId"],
 			dbData["payuId"],
-			dbData["status"]
+			status
 		)
 
-		if data["status"] == "COMPLETED":
+		if status == "success":
 			produce_mail_completed(
 				dbData["mail"],
 				dbData["orderId"],
@@ -49,12 +50,11 @@ payu_database.initialize_database()
 
 def create_payment(data: dict):
 	orderId = str(uuid.uuid4())
-	print("PAYMENT", orderId)
-
 	order = Order(orderId, data["description"])
-
 	customer = data["customer"]
 	userName = customer["firstName"] + " " + customer["lastName"]
+
+	print("New payment", data["internalId"], orderId)
 
 	order.set_customer(
 		customer["id"],
@@ -97,7 +97,7 @@ def create_payment(data: dict):
 		data["internalId"],
 		orderId,
 		orderData["payuId"],
-		"CREATED",
+		"created",
 		orderData["redirect"]
 	)
 
@@ -109,7 +109,18 @@ def create_payment(data: dict):
 		str(order.body["totalAmount"] / 100),
 		orderData["redirect"]
 	)
-	print("DONE")
+
+	print("Payment created")
+
+def translate_status(status: str) -> str:
+	if status == "PENDING":
+		return "pending"
+	elif status == "WAITING_FOR_CONFIRMATION":
+		return "waiting"
+	elif status == "COMPLETED":
+		return "success"
+	elif status == "CANCELED":
+		return "failed"
 
 def produce_udpate(internalId, orderId, payuId, status, redirect = None):
 	producer.produce(
@@ -118,7 +129,7 @@ def produce_udpate(internalId, orderId, payuId, status, redirect = None):
 		value=json.dumps({
 			"internalId": internalId,
 			"orderId": orderId,
-			"payuId": payuId,
+			"paymentId": payuId,
 			"status": status,
 			"redirect": redirect,
 		}).encode("utf-8")
@@ -172,4 +183,4 @@ with app.get_consumer() as consumer:
 				validate(jsonObject, payment_schema)
 				create_payment(jsonObject)
 			except Exception as error:
-				print("JSON Schema validation failed", error, traceback.format_exc())
+				print("Error", error, traceback.format_exc())
