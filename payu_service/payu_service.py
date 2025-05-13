@@ -1,11 +1,11 @@
 import json, uuid, threading, traceback, os
 
-from quixstreams import Application
 from observer import Subject, Observer
 from jsonschema import validate
 from payu_schemas import payment_schema
 from payu_requests import make_order
 from dotenv import load_dotenv
+from kafka import KafkaConsumer, KafkaProducer
 
 import payu_database
 from payu_notifications import notification_subject, payment_notifications_loop
@@ -39,14 +39,13 @@ class NotificationObserver(Observer):
 notification_observer = NotificationObserver()
 notification_subject.attach(notification_observer)
 
-app = Application(
-	broker_address=os.getenv("KAFKA_BROKER"),
-	consumer_group="create-payment-payu-group"
-)
-
-producer = app.get_producer()
-
 payu_database.initialize_database()
+
+producer = KafkaProducer(
+    bootstrap_servers=os.getenv("KAFKA_BROKER"),
+    value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+	key_serializer=lambda k: k.encode("utf-8") if k else None
+)
 
 def create_payment(data: dict):
 	orderId = str(uuid.uuid4())
@@ -123,22 +122,22 @@ def translate_status(status: str) -> str:
 		return "failed"
 
 def produce_udpate(internalId, orderId, payuId, status, redirect = None):
-	producer.produce(
+	producer.send(
 		topic="payment-status",
 		key="PayU",
-		value=json.dumps({
+		value={
 			"internalId": internalId,
 			"orderId": orderId,
 			"paymentId": payuId,
 			"status": status,
 			"redirect": redirect,
-		}).encode("utf-8")
+		}
 	)
 
 def produce_mail_order(mail, orderId, userName, product, amount, redirect):
-	producer.produce(
+	producer.send(
 		topic="send-mail",
-		value=json.dumps({
+		value={
 			"to": [mail],
 			"subject": "Nowe zamówienie",
 			"template": "new_order",
@@ -149,13 +148,13 @@ def produce_mail_order(mail, orderId, userName, product, amount, redirect):
 				"price": amount,
 				"payment_url": redirect,
 			}
-		}).encode("utf-8")
+		}
 	)
 
 def produce_mail_completed(mail, orderId, userName, amount):
-	producer.produce(
+	producer.send(
 		topic="send-mail",
-		value=json.dumps({
+		value={
 			"to": [mail],
 			"subject": "Potwierdzenie zakupu",
 			"template": "order_completed",
@@ -164,23 +163,28 @@ def produce_mail_completed(mail, orderId, userName, amount):
 				"order_id": orderId,
 				"price": amount,
 			}
-		}).encode("utf-8")
+		}
 	)
 
 # Start everything
 kafka_thread = threading.Thread(target=payment_notifications_loop, daemon=True)
 kafka_thread.start()
 
-with app.get_consumer() as consumer:
-	consumer.subscribe(["create-payment"])
+consumer = KafkaConsumer(
+    "create-payment",
+    bootstrap_servers=os.getenv("KAFKA_BROKER"),
+    auto_offset_reset="latest",
+    enable_auto_commit=True,
+    value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+	key_deserializer=lambda k: k.decode("utf-8") if k else None,
+    group_id="create-payment-payu-group"
+)
 
-	while True:
-		result = consumer.poll(1)
-		if result is not None and result.key().decode() == "PayU":
-			print("GOT PAYMENT REQUEST")
-			jsonObject = json.loads(result.value().decode("utf-8"))
-			try:
-				validate(jsonObject, payment_schema)
-				create_payment(jsonObject)
-			except Exception as error:
-				print("Error", error, traceback.format_exc())
+for message in consumer:
+	if message.key == "PayU":
+		print("GOT PAYMENT REQUEST")
+		try:
+			validate(message.value, payment_schema)
+			create_payment(message.value)
+		except Exception as error:
+			print("Error", error, traceback.format_exc())

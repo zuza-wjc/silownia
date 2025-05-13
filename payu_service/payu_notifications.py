@@ -1,32 +1,30 @@
 import json, os
 
-from quixstreams import Application
 from jsonschema import validate
-
+from kafka import KafkaConsumer
 from observer import Subject
 from payu_schemas import notification_schema
 
 notification_subject = Subject()
 
 def payment_notifications_loop():
-	app = Application(
-		broker_address=os.getenv("KAFKA_BROKER"),
-		consumer_group="payu-notification-group"
+	consumer = KafkaConsumer(
+		"payu-notification",
+		bootstrap_servers=os.getenv("KAFKA_BROKER"),
+		auto_offset_reset="latest",
+		enable_auto_commit=True,
+		value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+		key_deserializer=lambda k: k.decode("utf-8") if k else None,
+		group_id="payu-notification-group"
 	)
 
-	with app.get_consumer() as consumer:
-		consumer.subscribe(["payu-notification"])
-
-		while True:
-			result = consumer.poll(1)
-			if result is not None:
-				jsonObject = json.loads(result.value().decode("utf-8"))
-				try:
-					validate(jsonObject, notification_schema)
-					notification_subject.notify({
-						"orderId": jsonObject["extOrderId"],
-						"payuId": jsonObject["orderId"],
-						"status": jsonObject["status"]
-					})
-				except Exception as error:
-					print("JSON Schema validation failed", error)
+	for message in consumer:
+		try:
+			validate(message.value, notification_schema)
+			notification_subject.notify({
+				"orderId": message.value["extOrderId"],
+				"payuId": message.value["orderId"],
+				"status": message.value["status"]
+			})
+		except Exception as error:
+			print("JSON Schema validation failed", error)

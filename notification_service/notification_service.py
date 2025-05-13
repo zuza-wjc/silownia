@@ -1,5 +1,5 @@
 import smtplib, ssl, json, os, traceback
-from quixstreams import Application
+from kafka import KafkaConsumer
 from jsonschema import validate
 from email.message import EmailMessage
 from dotenv import load_dotenv
@@ -68,21 +68,20 @@ def send_message(message: EmailMessage, to: list[str]):
 	except Exception as error:
 		print("An error occured while attempting to send mail:", error, traceback.format_exc())
 
+
 # Listen to kafka events
-app = Application(
-	broker_address=os.getenv("KAFKA_BROKER"),
-	consumer_group="send-mail-group"
+consumer = KafkaConsumer(
+    "send-mail",
+    bootstrap_servers=os.getenv("KAFKA_BROKER"),
+    auto_offset_reset="latest",
+    enable_auto_commit=True,
+    value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+    group_id="send-mail-group"
 )
 
-with app.get_consumer() as consumer:
-	consumer.subscribe(["send-mail"])
-
-	while True:
-		result = consumer.poll(1)
-		if result is not None:
-			jsonObject = json.loads(result.value().decode("utf-8"))
-			try:
-				validate(jsonObject, message_schema)
-				send_mail(jsonObject)
-			except Exception as error:
-				print("Error", error)
+for message in consumer:
+	try:
+		validate(message.value, message_schema)
+		send_mail(message.value)
+	except Exception as error:
+		print("Error", error)

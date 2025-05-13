@@ -1,22 +1,23 @@
 import json, os
 from flask import Flask, Response, request
-from quixstreams import Application
+from kafka import KafkaProducer
+
+producer = KafkaProducer(
+    bootstrap_servers="localhost:9092",
+    value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+	key_serializer=lambda k: k.encode("utf-8") if k else None
+)
 
 app = Flask(__name__)
-
-kafka_app = Application(
-	broker_address="localhost:9092",
-)
 
 @app.route("/payu-payment-notification", methods=['POST'])
 def payment_callback():
 	order = json.loads(request.data.decode("utf-8"))["order"]
 
-	with kafka_app.get_producer() as producer:
-		producer.produce(
-			topic="payu-notification",
-			value=json.dumps(order).encode("utf-8")
-		)
+	producer.send(
+		topic="payu-notification",
+		value=order
+	)
 
 	return Response("", status=200)
 
