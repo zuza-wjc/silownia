@@ -59,12 +59,12 @@ def consume_payment_events():
                     loop.call_soon_threadsafe(fut.set_result, event)
 
             elif event.get("status") == "success":
-                crud.update_membership_status(db, event.get("internalId"), "paid")
+                crud.update_membership_status(db, int(event.get("internalId")), "paid")
                 db.commit()
                 print(f"Płatność zakończona pomyślnie dla karnetu: {event.get('internalId')}")
                 
             elif event.get("status") == "failed":
-                crud.delete_membership_by_email(db, event.get("internalId"))
+                crud.delete_membership_by_id(db, int(event.get("internalId")))
                 db.commit()
                 print(f"Płatność nieudana dla karnetu: {event.get('internalId')}")
 

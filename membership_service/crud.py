@@ -30,8 +30,8 @@ def create_membership(db: Session, email: str, type: str, purchase_date: date):
     return membership
 
 
-def update_membership_status(db: Session, email: str, status: str):
-    membership = get_membership_by_email(db, email)
+def update_membership_status(db: Session, membership_id: int, status: str):
+    membership = db.query(Membership).filter(Membership.id == membership_id).first()
     if membership:
         membership.status = status
         db.commit()
@@ -47,3 +47,12 @@ def delete_membership_by_email(db: Session, email: str):
         db.commit()
         return True
     return False
+
+def delete_membership_by_id(db: Session, membership_id: int):
+    membership = db.query(Membership).filter(Membership.id == membership_id).first()
+    if membership:
+        db.delete(membership)
+        db.commit()
+        return True
+    return False
+
