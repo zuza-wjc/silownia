@@ -63,3 +63,12 @@ services:
       - broker
     environment:
       - KAFKA_BROKER=broker:29092
+
+  classes_service:
+    image: classes_service
+    ports:  
+      - 8003:8003
+    depends_on:
+      - broker
+    environment:
+      - KAFKA_BROKER=broker:29092
