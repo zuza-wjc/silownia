@@ -54,3 +54,12 @@ services:
       - broker
     environment:
       - KAFKA_BROKER=broker:29092
+
+  tpay_payment_service:
+    image: tpay_payment_service
+    ports:
+      - 8002:8002
+    depends_on:
+      - broker
+    environment:
+      - KAFKA_BROKER=broker:29092

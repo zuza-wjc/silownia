@@ -1,8 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
-from pydantic import BaseModel
-
 Base = declarative_base()
 
 class Transaction(Base):
@@ -17,9 +15,3 @@ class Transaction(Base):
     tpay_title = Column(String)
     status = Column(String, default="pending")
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
-
-
-class CreatePaymentRequest(BaseModel):
-    amount: float
-    description: str
-    email: str

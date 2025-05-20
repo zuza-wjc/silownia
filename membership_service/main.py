@@ -8,8 +8,8 @@ from kafka import KafkaProducer, KafkaConsumer
 import json
 import threading
 from contextlib import asynccontextmanager
-from enum import Enum
 import os, asyncio
+from schemas import PaymentMethod, BuyMembershipResponse, CreatePaymentRequest
 
 pending: dict[str, asyncio.Future] = {}
 loop: asyncio.AbstractEventLoop | None = None
@@ -45,7 +45,6 @@ consumer = KafkaConsumer(
 def consume_payment_events():
     for msg in consumer:
         event = msg.value
-        key = msg.key
 
         with SessionLocal() as db:
             if event.get("status") == "created":
@@ -89,11 +88,7 @@ def read_root():
     return {"message": "dziala"}
 
 
-class PaymentMethod(str, Enum):
-    tpay = "TPay"
-    payu = "PayU"
-
-@app.post("/buy-membership/")
+@app.post("/buy-membership/", response_model=BuyMembershipResponse)
 async def buy_membership(
     email: str, 
     type: MembershipType, 
@@ -108,25 +103,26 @@ async def buy_membership(
     internal_id = str(membership.id)
 
     try:
+        payment_request = CreatePaymentRequest(
+            internalId=internal_id,
+            description=f"Zakup karnetu - {type.value}",
+            customer={
+                "id": "abcdefg123",
+                "ip": "172.0.0.1",
+                "email": email,
+                "firstName": "Janusz",
+                "lastName": "Kowalski"
+            },
+            products=[
+                {
+                    "name": f"Karnet - {type.value}",
+                    "price": MEMBERSHIP_PRICES[type.value]
+                }
+            ]
+        )
         producer.send("create-payment",
             key=payment_method.value.encode("utf-8"),
-            value={
-                "internalId": internal_id,
-                "description": f"Zakup karnetu - {type.value}",
-                "customer": {
-                    "id": "abcdefg123",
-                    "ip": "172.0.0.1",
-                    "email": email,
-                    "firstName": "Janusz",
-                    "lastName": "Kowalski"
-                },
-                "products": [
-                    {
-                        "name": f"Karnet - {type.value}",
-                        "price": MEMBERSHIP_PRICES[type.value]
-                    }
-                ]
-            }
+            value=payment_request.dict()
         )
     except Exception as e:
         crud.delete_membership_by_email(db, email)
@@ -138,11 +134,14 @@ async def buy_membership(
 
     try:
         result = await asyncio.wait_for(fut, timeout=10)
-        return {
-            "message": "Karnet kupiony. Przejdź do płatności.",
-            "membership": membership,
-            "redirect": result.get("redirect")
-        }
+        return BuyMembershipResponse(
+            message="Karnet kupiony. Przejdź do płatności.",
+            membership={
+                "email": email,
+                "status": "active"
+            },
+            redirect=result.get("redirect")
+        )
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=202,

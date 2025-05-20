@@ -3,12 +3,14 @@ from fastapi import FastAPI, HTTPException, Depends, Request
 from tpay_client import TPayClient
 from sqlalchemy.orm import Session
 from database import SessionLocal
-from models import Transaction, CreatePaymentRequest
+from models import Transaction
 from kafka import KafkaConsumer, KafkaProducer
 from contextlib import asynccontextmanager
 import threading
+from schemas import CreatePaymentRequest, PaymentResponse, PaymentMethod, KafkaPaymentEvent
+import os
 
-WEBHOOK_URL = "https://65c1-2a00-f41-70ef-71a6-9dbe-a9ae-bcd9-3c64.ngrok-free.app/webhook"
+WEBHOOK_URL = "https://ba3d-37-248-221-27.ngrok-free.app/webhook"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,13 +25,15 @@ app = FastAPI(lifespan=lifespan)
 tpay_client = TPayClient()
 
 producer = KafkaProducer(
-    bootstrap_servers='localhost:9092',
+    bootstrap_servers=os.getenv("KAFKA_BROKER"),
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
 consumer = KafkaConsumer(
     'create-payment',
-    bootstrap_servers='localhost:9092',
+    bootstrap_servers=os.getenv("KAFKA_BROKER"),
+    auto_offset_reset="earliest",
+    enable_auto_commit=True,
     value_deserializer=lambda m: json.loads(m.decode('utf-8')),
     key_deserializer=lambda k: k.decode('utf-8') if k else None,
     group_id='payment-group'
@@ -37,15 +41,22 @@ consumer = KafkaConsumer(
 
 def consume_membership_events(db: Session):
     for msg in consumer:
-        event = msg.value
         key = msg.key
 
-        if key == "TPay":
+        try:
+            payment_method = PaymentMethod(key)
+        except ValueError:
+            print(f"Nieobsługiwana metoda płatności: {key}")
+            continue
+
+        if payment_method == PaymentMethod.tpay:
             try:
-                internal_id = event["internalId"]
-                email = event["customer"]["email"]
-                price = event["products"][0]["price"]
-                description = event["description"]
+                payment_event = KafkaPaymentEvent(**msg.value)
+                internal_id = payment_event.internalId
+                email = payment_event.customer.email
+                price = payment_event.products[0].price
+                description = payment_event.description
+
 
                 payment_url, transaction_id, transaction_title = tpay_client.create_transaction(
                     amount=price,
@@ -67,10 +78,10 @@ def consume_membership_events(db: Session):
                 db.refresh(transaction)
 
                 # Wysłanie statusu 'created' do Kafki
-                producer.send("payment-status", key="TPay".encode("utf-8"), value={
-                    "internalId": internal_id,      # wziete z serwisu karnetow
-                    "orderId": str(transaction.id), # wziete z bazy transactions.db
-                    "paymentId": transaction_id,    # wziete z TPay API
+                producer.send("payment-status", key=payment_method.value.encode("utf-8"), value={
+                    "internalId": internal_id,
+                    "orderId": str(transaction.id),
+                    "paymentId": transaction_id,
                     "status": "created",
                     "redirect": payment_url
                 })
@@ -79,10 +90,8 @@ def consume_membership_events(db: Session):
 
             except Exception as e:
                 print(f"Błąd: {e}")
-
-                # Wysłanie statusu 'failed' do Kafki
-                producer.send("payment-status", key="TPay".encode("utf-8"), value={
-                    "internalId": event.get("internalId", "unknown"),
+                producer.send("payment-status", key=payment_method.value.encode("utf-8"), value={
+                    "internalId": msg.value.get("internalId", "unknown"),
                     "orderId": None,
                     "paymentId": None,
                     "status": "failed",
@@ -126,7 +135,11 @@ async def make_payment(
         ))
         db.commit()
 
-        return {"payment_url": payment_url, "transaction_id": transaction_id, "transaction_title": transaction_title}
+        return PaymentResponse(
+            payment_url=payment_url,
+            transaction_id=transaction_id,
+            transaction_title=transaction_title
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Błąd przy tworzeniu transakcji: {e}")
 

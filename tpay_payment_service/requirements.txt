@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlalchemy
+requests
+python-dateutil
+kafka-python
+python-dotenv
+pydantic[email]
+python-multipart
