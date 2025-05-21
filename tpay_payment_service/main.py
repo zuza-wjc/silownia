@@ -83,7 +83,11 @@ def consume_membership_events(db: Session):
                     "orderId": str(transaction.id),
                     "paymentId": transaction_id,
                     "status": "created",
-                    "redirect": payment_url
+                    "redirect": payment_url,
+                    "mail": email,
+                    "userName": payment_event.customer.firstName,
+                    "product": payment_event.products[0].name,
+                    "price": price
                 })
 
                 print(f"Payment created for {email}, payment URL: {payment_url}")

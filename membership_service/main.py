@@ -9,7 +9,8 @@ import json
 import threading
 from contextlib import asynccontextmanager
 import os, asyncio
-from schemas import PaymentMethod, BuyMembershipResponse, CreatePaymentRequest
+from schemas import PaymentMethod, BuyMembershipResponse, CreatePaymentRequest, MembershipResponse
+from dateutil.relativedelta import relativedelta
 
 pending: dict[str, asyncio.Future] = {}
 loop: asyncio.AbstractEventLoop | None = None
@@ -48,19 +49,32 @@ def consume_payment_events():
 
         with SessionLocal() as db:
             if event.get("status") == "created":
-                print(f"Płatność utworzona dla karnetu: {event.get('internalId')}, link do płatności: {event.get('redirect')}")
                 internal_id = event.get("internalId")
-                if not internal_id:
+                redirect_url = event.get("redirect")
+                if not redirect_url:
+                    print(f"Brak'redirect' URL: {event}")
                     continue
-
+                    
+                print(f"Płatność utworzona dla: {internal_id}, redirect: {redirect_url}")
+                updated_mem = crud.update_membership_redirect_url(db, internal_id, redirect_url)
+                if not updated_mem:
+                        print(f"Nie udało się zaktualizować redirect url dla {internal_id}")
+                    
                 fut = pending.get(internal_id)
-                if fut and not fut.done():
+                if fut and not fut.done() and loop:
                     loop.call_soon_threadsafe(fut.set_result, event)
+                elif fut and fut.done():
+                    print(f"Future for {internal_id} was already done.")
+                elif not fut:
+                    print(f"No pending future found for {internal_id} (event: 'created'). Might have timed out in API.")
 
             elif event.get("status") == "success":
-                crud.update_membership_status(db, int(event.get("internalId")), "paid")
+                membership = crud.update_membership_status(db, int(event.get("internalId")), "paid")
                 db.commit()
                 print(f"Płatność zakończona pomyślnie dla karnetu: {event.get('internalId')}")
+                if membership:
+                    send_membership_status(membership.email, "paid", membership.expiration_date)
+
                 
             elif event.get("status") == "failed":
                 crud.delete_membership_by_id(db, int(event.get("internalId")))
@@ -95,12 +109,36 @@ async def buy_membership(
     payment_method: PaymentMethod,
     db: Session = Depends(get_db)
 ):
-    existing = crud.get_membership_by_email(db, email)
-    if existing:
-        raise HTTPException(status_code=400, detail="Klient już ma karnet.")
+    existing_membership = crud.get_membership_by_email(db, email)
+
+    if existing_membership:
+        if existing_membership.status in ["paid", "active"]:
+            raise HTTPException(status_code=400, detail="Klient już ma aktywny lub opłacony karnet.")
+        
+        if existing_membership.status == "created":
+            if existing_membership.redirect_url:
+                print(f"Istnieje karnet dla {email} z redirect URL")
+                return BuyMembershipResponse(
+                    message="Płatność dla tego karnetu została już utworzona. Przekierowuję do płatności.",
+                    membership=MembershipResponse(email=email, status="created"),
+                    redirect=existing_membership.redirect_url
+                )
+            else:
+                print(f"Istnieje karnet dla {email} bez redirect URL. Czekaj na link.")
+                raise HTTPException(
+                    status_code=202,
+                    detail="Oczekujemy na link do płatności dla Twojego karnetu. Spróbuj ponownie za chwilę."
+                )
+        print(f"Istnieje karnet dla {email} ze statusem: {existing_membership.status}.")
+        raise HTTPException(
+            status_code=409, # Conflict
+            detail=f"Istnieje już karnet dla tego emaila ze statusem '{existing_membership.status}', który uniemożliwia nową transakcję. Skontaktuj się z obsługą."
+        )
     
-    membership = crud.create_membership(db, email, type.value, date.today())
-    internal_id = str(membership.id)
+    print(f"Tworze nowy karnet dla {email}, typ: {type.value}")
+    new_membership = crud.create_membership(db, email, type.value, date.today())
+    internal_id = str(new_membership.id)
+    send_membership_status(email, "created", None)
 
     try:
         payment_request = CreatePaymentRequest(
@@ -133,34 +171,27 @@ async def buy_membership(
     pending[internal_id] = fut
 
     try:
-        result = await asyncio.wait_for(fut, timeout=10)
+        payment_event_data = await asyncio.wait_for(fut, timeout=10.0)
+        
+        redirect_url_from_event = payment_event_data.get("redirect")
+        if not redirect_url_from_event:
+            print(f"Płatność otrzymana dla {internal_id} brak redirect URL. Event: {payment_event_data}")
+            crud.delete_membership_by_id(db, new_membership.id)
+            raise HTTPException(status_code=500, detail="Nie otrzymano linku do płatności od systemu płatności po utworzeniu.")
+
+        print(f"Redirect URL {redirect_url_from_event} otrzymany z kafki {internal_id}.")
         return BuyMembershipResponse(
-            message="Karnet kupiony. Przejdź do płatności.",
-            membership={
-                "email": email,
-                "status": "active"
-            },
-            redirect=result.get("redirect")
+            message="Karnet utworzony. Przejdź do płatności.",
+            membership=MembershipResponse(email=email, status="created"),
+            redirect=redirect_url_from_event
         )
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=202,
-            detail=f"Płatność {internal_id} w toku - sprawdź później.",
+            detail=f"Płatność dla karnetu {internal_id} jest przetwarzana. Link do płatności zostanie udostępniony wkrótce. Spróbuj ponownie za chwilę."
         )
     finally:
         pending.pop(internal_id, None)
-
-@app.get("/get-membership/")
-def get_membership(email: str, db: Session = Depends(get_db)):
-    membership = crud.get_membership_by_email(db, email)
-    if not membership:
-        raise HTTPException(status_code=404, detail="Nie znaleziono karnetu dla podanego emaila.")
-    
-    return {
-        "email": membership.email,
-        "status": membership.status,
-    }
-
 
 @app.post("/verify-membership/")
 def verify_membership(email: str, db: Session = Depends(get_db)):
@@ -168,10 +199,26 @@ def verify_membership(email: str, db: Session = Depends(get_db)):
     if not membership:
         raise HTTPException(status_code=404, detail="Nie znaleziono karnetu dla podanego emaila.")
     
-    if membership.status != "active":
+    if membership.status == "paid":
         membership.status = "active"
+
+        if isinstance(membership.purchase_date, date) and membership.type in ["1m", "3m", "12m"]:
+            if membership.type == "1m":
+                membership.expiration_date = membership.purchase_date + relativedelta(months=1)
+            elif membership.type == "3m":
+                membership.expiration_date = membership.purchase_date + relativedelta(months=3)
+            elif membership.type == "12m":
+                membership.expiration_date = membership.purchase_date + relativedelta(months=12)
+            else:
+                db.rollback()
+                raise HTTPException(status_code=500, detail="Nie można obliczyć daty ważności: nieprawidłowy typ karnetu.")
+        else:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Nie można obliczyć daty ważności: brak daty zakupu lub nieprawidłowy typ.")
+        
         db.commit()
         db.refresh(membership)
+        send_membership_status(email, "active", membership.expiration_date)
         return {"message": f"Status zmieniony na 'active' dla {email}"}
     
     return {"message": f"Karnet już jest aktywny dla {email}"}
@@ -180,6 +227,15 @@ def verify_membership(email: str, db: Session = Depends(get_db)):
 @app.delete("/cancel-membership")
 def cancel_membership(email: str = Query(...), db: Session = Depends(get_db)):
     deleted = crud.delete_membership_by_email(db, email)
+    send_membership_status(email, "cancelled", None)
     if not deleted:
         raise HTTPException(status_code=404, detail="Nie znaleziono karnetu do usunięcia.")
     return {"message": f"Karnet dla {email} został anulowany."}
+
+
+def send_membership_status(email: str, status: str, expiration_date: date | None):
+    producer.send("membership-status", value={
+        "email": email,
+        "status": status,
+        "expiration_date": expiration_date.isoformat() if expiration_date else None
+    })
