@@ -21,20 +21,21 @@ class NotificationObserver(Observer):
 		payu_database.update_payment(data["orderId"], status)
 
 		dbData = payu_database.get_payment_by_order_id(data["orderId"])
+
+		args = {}
+
+		if status == "success":
+			args["mail"] = dbData["mail"]
+			args["userName"] = dbData["userName"]
+			args["price"] = dbData["amount"]
+
 		produce_udpate(
 			dbData["internalId"],
 			dbData["orderId"],
 			dbData["payuId"],
-			status
+			status,
+			**args
 		)
-
-		if status == "success":
-			produce_mail_completed(
-				dbData["mail"],
-				dbData["orderId"],
-				dbData["userName"],
-				str(dbData["amount"]),
-			)
 
 notification_observer = NotificationObserver()
 notification_subject.attach(notification_observer)
@@ -97,16 +98,11 @@ def create_payment(data: dict):
 		orderId,
 		orderData["payuId"],
 		"created",
-		orderData["redirect"]
-	)
-
-	produce_mail_order(
-		customer["email"],
-		orderId,
-		userName,
-		productName,
-		str(order.body["totalAmount"] / 100),
-		orderData["redirect"]
+		redirect=orderData["redirect"],
+		mail=customer["email"],
+		userName=userName,
+		product=productName,
+		price=str(order.body["totalAmount"] / 100)
 	)
 
 	print("Payment created")
@@ -121,7 +117,7 @@ def translate_status(status: str) -> str:
 	elif status == "CANCELED":
 		return "failed"
 
-def produce_udpate(internalId, orderId, payuId, status, redirect = None):
+def produce_udpate(internalId, orderId, payuId, status, **kwargs):
 	producer.send(
 		topic="payment-status",
 		key="PayU",
@@ -130,39 +126,7 @@ def produce_udpate(internalId, orderId, payuId, status, redirect = None):
 			"orderId": orderId,
 			"paymentId": payuId,
 			"status": status,
-			"redirect": redirect,
-		}
-	)
-
-def produce_mail_order(mail, orderId, userName, product, amount, redirect):
-	producer.send(
-		topic="send-mail",
-		value={
-			"to": [mail],
-			"subject": "Nowe zamówienie",
-			"template": "new_order",
-			"template_values": {
-				"user_name": userName,
-				"order_id": orderId,
-				"product": product,
-				"price": amount,
-				"payment_url": redirect,
-			}
-		}
-	)
-
-def produce_mail_completed(mail, orderId, userName, amount):
-	producer.send(
-		topic="send-mail",
-		value={
-			"to": [mail],
-			"subject": "Potwierdzenie zakupu",
-			"template": "order_completed",
-			"template_values": {
-				"user_name": userName,
-				"order_id": orderId,
-				"price": amount,
-			}
+			**kwargs
 		}
 	)
 

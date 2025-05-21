@@ -4,6 +4,9 @@ from jsonschema import validate
 from email.message import EmailMessage
 from dotenv import load_dotenv
 
+from notification_schemas import topic_schemas
+from notification_handlers import topic_translators, topic_handlers
+
 from notification_schemas import message_schema
 from notification_templates import templates
 
@@ -50,6 +53,7 @@ def send_mail(data: dict):
 
 	if not body:
 		print("Failed to send message - no body", data.get("body"), data.get("template"))
+		return
 
 	message = build_message(to_str, subject, len(to) == 1)
 	message.add_alternative(body, subtype="html")
@@ -68,10 +72,8 @@ def send_message(message: EmailMessage, to: list[str]):
 	except Exception as error:
 		print("An error occured while attempting to send mail:", error, traceback.format_exc())
 
-
 # Listen to kafka events
 consumer = KafkaConsumer(
-    "send-mail",
     bootstrap_servers=os.getenv("KAFKA_BROKER"),
     auto_offset_reset="latest",
     enable_auto_commit=True,
@@ -79,9 +81,32 @@ consumer = KafkaConsumer(
     group_id="send-mail-group"
 )
 
+consumer.subscribe([""])
+
 for message in consumer:
 	try:
-		validate(message.value, message_schema)
-		send_mail(message.value)
+		topic = message.topic
+		translator = topic_translators.get(topic)
+		if translator:
+			if translator is str:
+				topic = translator
+			elif translator is function:
+				topic = translator(message)
+
+		if not topic:
+			continue
+
+		validator = topic_schemas.get(topic)
+		if validator:
+			validate(message.value, validator)
+
+		handler = topic_handlers.get(topic)
+		if not handler:
+			print(f"Topic '{topic}' has no handler!")
+		else:
+			data = handler(message.value)
+			if data:
+				send_mail(data)
+		
 	except Exception as error:
 		print("Error", error)
