@@ -8,7 +8,6 @@ class PaymentStatus(str, Enum):
     success = "success"
     failed = "failed"
 
-
 class PaymentMethod(str, Enum):
     tpay = "TPay"
     payu = "PayU"

@@ -1,28 +1,21 @@
 from datetime import date
 from requests import Session
 from models import Membership
-from dateutil.relativedelta import relativedelta
 
 def get_membership_by_email(db: Session, email: str):
     return db.query(Membership).filter(Membership.email == email).first()
 
+def get_membership_by_id(db: Session, membership_id: int):
+    return db.query(Membership).filter(Membership.id == membership_id).first()
 
 def create_membership(db: Session, email: str, type: str, purchase_date: date):
-    if type == "1m":
-        expiration = purchase_date + relativedelta(months=1)
-    elif type == "3m":
-        expiration = purchase_date + relativedelta(months=3)
-    elif type == "12m":
-        expiration = purchase_date + relativedelta(months=12)
-    else:
-        raise ValueError("Nieprawidłowy typ karnetu")
-
     membership = Membership(
         email=email,
         type=type,
         purchase_date=purchase_date,
-        expiration_date=expiration,
-        status="inactive"
+        expiration_date=None,
+        status="created",
+        redirect_url=None
     )
     db.add(membership)
     db.commit()
@@ -37,6 +30,17 @@ def update_membership_status(db: Session, membership_id: int, status: str):
         db.commit()
         db.refresh(membership)
         return membership
+    return None
+
+def update_membership_redirect_url(db: Session, membership_id: int, redirect_url: str):
+    membership = db.query(Membership).filter(Membership.id == membership_id).first()
+    if membership:
+        membership.redirect_url = redirect_url
+        db.commit()
+        db.refresh(membership)
+        print(f"Updated redirect_url for membership {membership_id} to {redirect_url}")
+        return membership
+    print(f"Failed to find membership {membership_id} to update redirect_url")
     return None
 
 
@@ -55,4 +59,3 @@ def delete_membership_by_id(db: Session, membership_id: int):
         db.commit()
         return True
     return False
-
