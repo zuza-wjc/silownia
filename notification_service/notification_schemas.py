@@ -95,9 +95,38 @@ topic_schemas: dict[str, dict] = {
 		.addProperty("orderId", "string", True)
 		.addProperty("redirect", "string", True)
 		.schema,
-	"payment-status-created": Schema()
+	"payment-status-completed": Schema()
 		.addProperty("mail", ["string", "array"], True)
 		.addProperty("userName", "string", True)
 		.addProperty("price", "string", True)
+		.schema,
+	"reservation-created": Schema()
+		.addProperty("email", "string", True)
+		.addProperty("start_date", "string", True)
+		.addProperty("end_date", "string", True)
+		.schema,
+	"reservation-canceled": Schema()
+		.addProperty("email", "string", True)
+		.schema,
+	"class-join": Schema()
+		.addProperty("email", "string", True)
+		.addProperty("class_id", "string", True)
+		.addProperty("trainer_id", "string", True)
+		.addProperty("title", "string", True)
+		.addProperty("capacity", "string", True)
+		.schema,
+	"class-resign": Schema()
+		.addProperty("email", "string", True)
+		.addProperty("class_id", "string", True)
+		.addProperty("trainer_id", "string", True)
+		.addProperty("title", "string", True)
+		.addProperty("capacity", "string", True)
+		.schema,
+	"class-cancel_class": Schema()
+		.addProperty("emails", "array", True)
+		.addProperty("id", "string", True)
+		.addProperty("trainer_id", "string", True)
+		.addProperty("title", "string", True)
+		.addProperty("capacity", "string", True)
 		.schema,
 }
