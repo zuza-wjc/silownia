@@ -3,6 +3,7 @@ from models import Reservation
 from schemas import ReservationCreate
 from datetime import datetime, timedelta
 from sqlalchemy import and_
+from models import Pass
 
 
 def get_conflicting_reservation(db: Session, resource_id, start_time, end_time):
@@ -41,3 +42,23 @@ def cancel_reservation(db: Session, reservation_id):
         res.status = "cancelled"
         db.commit()
     return res
+
+
+def upsert_pass(db: Session, user_id: str, valid_until: datetime):
+    existing = db.query(Pass).filter_by(user_id=user_id).first()
+    if existing:
+        existing.valid_until = valid_until
+    else:
+        new_pass = Pass(user_id=user_id, valid_until=valid_until)
+        db.add(new_pass)
+    db.commit()
+
+
+def remove_pass(db: Session, user_id: str):
+    db.query(Pass).filter_by(user_id=user_id).delete()
+    db.commit()
+
+
+def has_valid_pass(db: Session, user_id: str) -> bool:
+    p = db.query(Pass).filter_by(user_id=user_id).first()
+    return p is not None and p.valid_until >= datetime.utcnow()
