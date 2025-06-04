@@ -5,11 +5,16 @@ from typing import List
 
 
 class KafkaProduct(BaseModel):
+    name: str
     price: float
 
 
 class KafkaCustomer(BaseModel):
+    id: Optional[str] = None
+    ip: Optional[str] = None
     email: EmailStr
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
 
 
 class KafkaPaymentEvent(BaseModel):

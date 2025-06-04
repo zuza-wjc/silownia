@@ -1,3 +1,4 @@
+from datetime import date
 from pydantic import BaseModel
 from typing import List, Optional
 from enum import Enum
@@ -54,6 +55,14 @@ class MembershipResponse(BaseModel):
     email: str
     status: str
 
+class MembershipDateResponse(BaseModel):
+    email: str
+    status: str
+    type: str
+    expiration_date: Optional[date]
+
+    class Config:
+        orm_mode = True
 
 class BuyMembershipResponse(BaseModel):
     message: str

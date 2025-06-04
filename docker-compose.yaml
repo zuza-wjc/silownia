@@ -23,6 +23,13 @@ services:
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
 
+  redis:
+    image: redis:alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    restart: always
+
   notification_service:
     image: notification_service
     depends_on:
@@ -52,8 +59,10 @@ services:
       - 8001:8001
     depends_on:
       - broker
+      - redis
     environment:
       - KAFKA_BROKER=broker:29092
+      - REDIS_HOST=redis
 
   tpay_payment_service:
     image: tpay_payment_service

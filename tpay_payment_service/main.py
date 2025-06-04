@@ -10,7 +10,7 @@ import threading
 from schemas import CreatePaymentRequest, PaymentResponse, PaymentMethod, KafkaPaymentEvent
 import os
 
-WEBHOOK_URL = "https://ba3d-37-248-221-27.ngrok-free.app/webhook"
+WEBHOOK_URL = "https://68ae-2a00-f41-7045-a5e6-cf2-2f18-4c5e-7340.ngrok-free.app/webhook"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -187,4 +187,4 @@ async def tpay_webhook(request: Request, db: Session = Depends(get_db)):
             "redirect": None
         })
 
-    return {"message": "Status zaktualizowany"}
+    return True
