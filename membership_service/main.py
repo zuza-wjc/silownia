@@ -14,15 +14,15 @@ from dateutil.relativedelta import relativedelta
 import redis
 import uuid
 
+REDIS_HOST = os.getenv("REDIS_HOST")
+REDIS_PORT = os.getenv("REDIS_PORT")
+EXTENSION_INTENT_KEY_PREFIX = os.getenv("EXTENSION_INTENT_KEY_PREFIX")
+EXTENSION_INTENT_TTL_SECONDS = os.getenv("EXTENSION_INTENT_TTL_SECONDS")
+
 pending: dict[str, asyncio.Future] = {}
 loop: asyncio.AbstractEventLoop | None = None
 
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
-
-EXTENSION_INTENT_KEY_PREFIX = "extension_intent:"
-EXTENSION_INTENT_TTL_SECONDS = 900
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

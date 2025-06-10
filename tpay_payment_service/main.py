@@ -10,7 +10,7 @@ import threading
 from schemas import CreatePaymentRequest, PaymentResponse, PaymentMethod, KafkaPaymentEvent
 import os
 
-WEBHOOK_URL = "https://68ae-2a00-f41-7045-a5e6-cf2-2f18-4c5e-7340.ngrok-free.app/webhook"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
