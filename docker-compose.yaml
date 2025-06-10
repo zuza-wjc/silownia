@@ -1,4 +1,45 @@
 services:
+  kong-database:
+    image: postgres:13
+    container_name: kong-database
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kong
+    ports:
+      - "5432:5432"
+
+  kong-migrations:
+    image: kong:3.6
+    command: kong migrations bootstrap
+    depends_on:
+      - kong-database
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_PASSWORD: kong
+      KONG_PASSWORD: kong
+
+  kong:
+    image: kong:3.6
+    container_name: kong
+    depends_on:
+      - kong-database
+      - kong-migrations
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_PASSWORD: kong
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+    ports:
+      - "8000:8000"   # proxy
+      - "8001:8001"   # admin API
+      - "8444:8444"   # admin HTTPS
+      - "8002:8002"   # proxy HTTPS
   broker:
     image: apache/kafka:latest
     hostname: broker
@@ -63,6 +104,10 @@ services:
     environment:
       - KAFKA_BROKER=broker:29092
       - REDIS_HOST=redis
+      - REDIS_PORT=${REDIS_PORT}
+      - EXTENSION_INTENT_KEY_PREFIX=${EXTENSION_INTENT_KEY_PREFIX}
+      - EXTENSION_INTENT_TTL_SECONDS=${EXTENSION_INTENT_TTL_SECONDS}
+      
 
   tpay_payment_service:
     image: tpay_payment_service
@@ -72,6 +117,10 @@ services:
       - broker
     environment:
       - KAFKA_BROKER=broker:29092
+      - TPAY_CLIENT_ID=${TPAY_CLIENT_ID}
+      - TPAY_CLIENT_SECRET=${TPAY_CLIENT_SECRET}
+      - TPAY_API_URL=${TPAY_API_URL}
+      - WEBHOOK_URL=${WEBHOOK_URL}
 
   classes_service:
     image: classes_service
