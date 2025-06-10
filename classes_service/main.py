@@ -7,6 +7,10 @@ import os, asyncio
 import json
 from contextlib import asynccontextmanager
 import threading
+import logging 
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 pending: dict[str, asyncio.Future] = {}
 loop: asyncio.AbstractEventLoop | None = None
@@ -42,27 +46,28 @@ consumer = KafkaConsumer(
 def consume_events():
     for msg in consumer:
         event = msg.value
+        logger.info(f"Odebrano zdarzenie z Kafki: {event}") 
         with SessionLocal() as db:
             if event.get("status"):
                 status = event.get("status")
                 email = event.get("email")
                 expiration_date = event.get("expiration_date")
-                update_status(db, email, status, expiration_date)
+                update_status(db, email, status, expiration_date, logger)
 
 @app.post("/join-class")
 def join_clas(req: RegistrationRequest):
     with SessionLocal() as db:
-        return join_class(db, req, producer)
+        return join_class(db, req, producer, logger)
     
 @app.post("/create-class")  
 def create_clas(req: CreateClassRequest):
     with SessionLocal() as db:
-        return create_class(db, req, producer)
+        return create_class(db, req, producer, logger)
     
 @app.delete("/cancel-class")
 def cancel_clas(req: CancelClassRequest):
     with SessionLocal() as db:
-        return cancel_class(db, req, producer)
+        return cancel_class(db, req, producer, logger)
 
 @app.get("/classes")
 def list_classes():

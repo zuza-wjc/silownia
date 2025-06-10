@@ -1,7 +1,8 @@
 from fastapi import HTTPException
 from models import ClassGroup, Membership, Trainers
+import logging 
 
-def join_class(db, req, producer):
+def join_class(db, req, producer, logger):
     class_group = db.query(ClassGroup).filter(ClassGroup.id == req.class_id).first()
     membership = db.query(Membership).filter(Membership.id == req.client_id).first()
     email = membership.email
@@ -34,6 +35,7 @@ def join_class(db, req, producer):
     
     db.commit()
 
+    logger.info(f"Wysłanie class-evnets")
     producer.send("class-evnets", value={
         "event": event,
         "class_id": req.class_id,
@@ -45,18 +47,19 @@ def join_class(db, req, producer):
 
     return {"success": True, "message": f"{subject} Klient {email}: {class_group.title}"}
 
-def create_class(db, req, producer):
+def create_class(db, req, producer, logger):
     new_class = ClassGroup(
         trainer_id = req.trainer_id,
         title = req.title,
         capacity = req.capacity,
         user_ids = ""
     )
-
+    logger.info(f"Utworzono nowe zajęcia {new_class.title}")
     db.add(new_class)
     db.commit()
     db.refresh(new_class)
 
+    logger.info(f"Wysłanie class-evnets")
     producer.send("class-evnets", value={
         "event": "create_class",
         "id": new_class.id,
@@ -67,15 +70,17 @@ def create_class(db, req, producer):
 
     return new_class
 
-def cancel_class(db, req, producer):
+def cancel_class(db, req, producer, logger):
     class_group = db.query(ClassGroup).filter(ClassGroup.id == req.class_id).first()
 
     if class_group:
+        logger.info(f"Anulowano zajęcia {class_group.title}")
         db.delete(class_group)
         db.commit()
-
+        
         emails = class_group.user_ids.split(",") if class_group.user_ids else []
 
+        logger.info(f"Wysłanie class-evnets")
         producer.send("class-evnets", value={
             "event": "cancel_class",
             "id": class_group.id,
@@ -106,12 +111,14 @@ def get_class_participants(db, class_id):
         "participants": class_group.user_ids
     }
 
-def update_status(db, email, status, expiration_date):
+def update_status(db, email, status, expiration_date, logger):
     membership = db.query(Membership).filter(Membership.email == email).first()
 
     if membership:
+        logger.info(f"Aktualizacja statusu klienta {email} status: {status}")
         membership.status = status
     else:
+        logger.info(f"Dodanie nowego klienta do bazy danych {email}")
         membership = Membership(email=email, status=status, expiration_date=expiration_date)
         db.add(membership)
 
