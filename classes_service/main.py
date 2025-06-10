@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from models import Base, RegistrationRequest, CreateClassRequest, CancelClassRequest
 from database import engine, SessionLocal
-from services import join_class, create_class, get_class_list, get_class_participants, cancel_class, update_status
+from services import join_class, create_class, get_class_list, get_class_participants, cancel_class, update_status, get_membership_list
 from kafka import KafkaProducer, KafkaConsumer
 import os, asyncio
 import json
@@ -43,11 +43,11 @@ def consume_events():
     for msg in consumer:
         event = msg.value
         with SessionLocal() as db:
-            if event.get("status") == "active":
-                email = event["email"]
-                update_status(db, email, "active")
-            # elif event.get("status") == "inactive":
-            # elif event.get("status") == "paid":
+            if event.get("status"):
+                status = event.get("status")
+                email = event.get("email")
+                expiration_date = event.get("expiration_date")
+                update_status(db, email, status, expiration_date)
 
 @app.post("/join-class")
 def join_clas(req: RegistrationRequest):
@@ -74,3 +74,7 @@ def class_participants(class_id: int):
     with SessionLocal() as db:
         return get_class_participants(db, class_id)
     
+@app.get("/membership")
+def get_membership():
+    with SessionLocal() as db:
+        return get_membership_list(db)

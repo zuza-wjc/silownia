@@ -27,7 +27,7 @@ class Trainers(Base):
     email = Column(String, index=True)    
 
 class RegistrationRequest(BaseModel):
-    client_id: str
+    client_id: int
     class_id: int
 
 class CreateClassRequest(BaseModel):

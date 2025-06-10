@@ -3,7 +3,7 @@ from models import ClassGroup, Membership, Trainers
 
 def join_class(db, req, producer):
     class_group = db.query(ClassGroup).filter(ClassGroup.id == req.class_id).first()
-    membership = db.query(Membership).filter(Membership.id == req.class_id).first()
+    membership = db.query(Membership).filter(Membership.id == req.client_id).first()
     email = membership.email
     status = membership.status
 
@@ -106,13 +106,21 @@ def get_class_participants(db, class_id):
         "participants": class_group.user_ids
     }
 
-def update_status(db, email, status):
+def update_status(db, email, status, expiration_date):
     membership = db.query(Membership).filter(Membership.email == email).first()
-    membership = db.query(Membership).filter(Membership.email == email).first()
+
     if membership:
         membership.status = status
+    else:
+        membership = Membership(email=email, status=status, expiration_date=expiration_date)
         db.add(membership)
-        db.commit()
-        db.refresh(membership)
-        return membership
-    return None
+
+    db.commit()
+    db.refresh(membership)
+    return membership
+
+def get_membership_list(db):
+    return [{
+        "id": c.id,
+        "email": c.email
+    } for c in db.query(Membership).all()]
