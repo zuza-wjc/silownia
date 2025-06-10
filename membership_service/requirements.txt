@@ -5,3 +5,4 @@ requests
 python-dateutil
 kafka-python
 python-dotenv
+redis

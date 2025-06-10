@@ -37,8 +37,8 @@ memberships = [
         email="kasia.kwiatkowska@example.com", 
         type=MembershipType.one_month, 
         purchase_date=date.today() - timedelta(days=40), 
-        expiration_date=date.today() - timedelta(days=10), 
-        status="created"
+        expiration_date=date.today() + timedelta(days=10), 
+        status="active"
     ),
 ]
 
