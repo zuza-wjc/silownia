@@ -46,7 +46,7 @@ consumer = KafkaConsumer(
     'payment-status',
     bootstrap_servers=os.getenv("KAFKA_BROKER"),
     auto_offset_reset="earliest",
-    enable_auto_commit=True,
+    enable_auto_commit=False,
     value_deserializer=lambda m: json.loads(m.decode('utf-8')),
     key_deserializer=lambda k: k.decode('utf-8') if k else None,
     group_id='membership-group'
@@ -56,82 +56,105 @@ def consume_payment_events():
     for msg in consumer:
         event = msg.value
         payment_internal_id = event.get("internalId")
+        status = event.get("status")
+
+        if not payment_internal_id or not status:
+            print(f"BŁĄD: Brak 'internalId' lub 'status' w wiadomości z Kafki: {event}")
+            consumer.commit()
+            continue
+
+        print(f"Przetwarzanie zdarzenia: ID={payment_internal_id}, Status={status}, Redirect Present: {bool(event.get('redirect'))}")
 
         with SessionLocal() as db:
-            if event.get("status") == "created":
-                redirect_url = event.get("redirect")
-                if not redirect_url:
-                    print(f"Brak'redirect' URL: {event}")
+            try:
+                if status == "created":
+                    fut = pending.get(payment_internal_id)
+                    if fut and not fut.done() and loop:
+                        loop.call_soon_threadsafe(fut.set_result, event)
+
+                    is_extension_payment = redis_client.exists(f"{EXTENSION_INTENT_KEY_PREFIX}{payment_internal_id}")
+                    if not is_extension_payment:
+                        redirect_url = event.get("redirect")
+                        if redirect_url:
+                            try:
+                                membership_id = int(payment_internal_id)
+                                updated_membership = crud.update_membership_redirect_url(db, membership_id, redirect_url)
+                                if updated_membership:
+                                    db.commit()
+                                    print(f"INFO: Zaktualizowano redirect_url dla karnetu ID: {membership_id}, {redirect_url}")
+                                else:
+                                    print(f"INFO: Nie znaleziono karnetu o ID {membership_id} do aktualizacji. Mógł zostać usunięty.")
+                            except (ValueError, TypeError):
+                                print(f"BŁĄD: Otrzymano niepoprawne ID karnetu '{payment_internal_id}' w zdarzeniu 'created'.")
+                        else:
+                            print(f"BŁĄD KRYTYCZNY: Zdarzenie 'created' dla {payment_internal_id} nie zawierało pola 'redirect'.")
+
+                    consumer.commit()
                     continue
-                    
-                print(f"Płatność utworzona dla: {payment_internal_id}, redirect: {redirect_url}")
 
-                is_extension_payment = redis_client.exists(f"{EXTENSION_INTENT_KEY_PREFIX}{payment_internal_id}")
-                if not is_extension_payment:
-                    updated_mem = crud.update_membership_redirect_url(db, payment_internal_id, redirect_url)
-                    if not updated_mem:
-                        print(f"Nie udało się zaktualizować redirect url dla {payment_internal_id}")
-                else:
-                    print(f"Otrzymano redirect URL dla przedłużenia płatności: {payment_internal_id}")
-                    
-                fut = pending.get(payment_internal_id)
-                if fut and not fut.done() and loop:
-                    loop.call_soon_threadsafe(fut.set_result, event)
-                elif fut and fut.done():
-                    print(f"Future for {payment_internal_id} was already done.")
-                elif not fut:
-                    print(f"No pending future found for {payment_internal_id} (event: 'created'). Might have timed out in API.")
+                extension_intent_key = f"{EXTENSION_INTENT_KEY_PREFIX}{payment_internal_id}"
+                extension_intent_json = redis_client.get(extension_intent_key)
 
-            elif event.get("status") == "success":
-                extension_intent_json = redis_client.get(f"{EXTENSION_INTENT_KEY_PREFIX}{payment_internal_id}")
-                if extension_intent_json:
-                    redis_client.delete(f"{EXTENSION_INTENT_KEY_PREFIX}{payment_internal_id}")
-                    extension_data = json.loads(extension_intent_json)
-                    original_membership_id = extension_data['original_membership_id']
-                    extension_type = extension_data['extension_type']
-                    email = extension_data['email']
+                if status == "success":
+                    if extension_intent_json:
+                        redis_client.delete(extension_intent_key)
+                        extension_data = json.loads(extension_intent_json)
+                        original_membership_id = extension_data['original_membership_id']
+                        extension_type = extension_data['extension_type']
 
-                    membership = crud.get_membership_by_id(db, original_membership_id)
-                    if membership and membership.status == "active" and membership.expiration_date:
-                        current_expiration_date = membership.expiration_date
-                        if extension_type == "1m":
-                            membership.expiration_date = current_expiration_date + relativedelta(months=1)
-                        elif extension_type == "3m":
-                            membership.expiration_date = current_expiration_date + relativedelta(months=3)
-                        elif extension_type == "12m":
-                            membership.expiration_date = current_expiration_date + relativedelta(months=12)
-                        
-                        db.commit()
-                        db.refresh(membership)
-                        print(f"Karnet dla {email} (ID: {original_membership_id}) został pomyślnie przedłużony. Nowa data ważności: {membership.expiration_date}")
-                        send_membership_status(email, "extended", membership.expiration_date)
+                        membership = crud.get_membership_by_id(db, original_membership_id)
+                        if membership and membership.status == "active" and membership.expiration_date:
+                            if extension_type == "1m":
+                                membership.expiration_date += relativedelta(months=1)
+                            elif extension_type == "3m":
+                                membership.expiration_date += relativedelta(months=3)
+                            elif extension_type == "12m":
+                                membership.expiration_date += relativedelta(months=12)
+
+                            db.commit()
+                            print(f"SUKCES: Karnet ID:{original_membership_id} został przedłużony. Nowa data ważności: {membership.expiration_date}")
+                            send_membership_status(membership.email, "extended", membership.expiration_date)
+                        else:
+                            print(f"BŁĄD: Nie można przedłużyć karnetu ID:{original_membership_id}. Status: {membership.status if membership else 'Nie znaleziono'}.")
                     else:
-                        print(f"Nie można przedłużyć karnetu. ID: {original_membership_id}, Status: {membership.status if membership else 'Nie znaleziono'}")
-                else:
-                    membership = crud.update_membership_status(db, int(payment_internal_id), "paid")
-                    db.commit()
-                    print(f"Płatność zakończona pomyślnie dla nowego karnetu: {payment_internal_id}")
-                    if membership:
-                        send_membership_status(membership.email, "paid", membership.expiration_date)
+                        try:
+                            membership_id = int(payment_internal_id)
+                            membership = crud.update_membership_status(db, membership_id, "paid")
+                            if membership:
+                                db.commit()
+                                print(f"Zmieniono status karnetu o ID:{membership_id} na 'paid'")
+                                send_membership_status(membership.email, "paid", membership.expiration_date)
+                            else:
+                                print(f"BŁĄD: Nie znaleziono karnetu o ID:{membership_id} do opłacenia.")
+                        except ValueError:
+                            print(f"BŁĄD KRYTYCZNY: Otrzymano płatność dla ID '{payment_internal_id}', które nie jest ID nowego karnetu, a klucz Redis dla przedłużenia wygasł. Płatność wymaga ręcznej weryfikacji.")
 
-            elif event.get("status") == "failed":
-                is_extension_payment = redis_client.exists(f"{EXTENSION_INTENT_KEY_PREFIX}{payment_internal_id}")
-                if is_extension_payment:
-                    redis_client.delete(f"{EXTENSION_INTENT_KEY_PREFIX}{payment_internal_id}")
-                    extension_data = json.loads(extension_intent_json) if (extension_intent_json := redis_client.get(f"{EXTENSION_INTENT_KEY_PREFIX}{payment_internal_id}")) else {}
-                    email = extension_data.get('email', 'N/A')
-                    print(f"Płatność za przedłużenie nieudana dla {email} (ID płatności: {payment_internal_id}). Karnet nie został zmieniony.")
-                else:
-                    crud.delete_membership_by_id(db, int(payment_internal_id))
-                    db.commit()
-                    print(f"Płatność nieudana dla nowego karnetu: {payment_internal_id}. Karnet usunięty.")
+                elif status == "failed":
+                    if extension_intent_json:
+                        redis_client.delete(extension_intent_key)
+                        print(f"INFO: Płatność za przedłużenie (ID: {payment_internal_id}) nie powiodła się. Karnet nie został zmieniony.")
+                    else:
+                        try:
+                            membership_id = int(payment_internal_id)
+                            deleted_count = crud.delete_membership_by_id(db, membership_id)
+                            if deleted_count > 0:
+                                db.commit()
+                                print(f"INFO: Płatność za nowy karnet (ID: {membership_id}) nie powiodła się. Rekord usunięty.")
+                        except ValueError:
+                            print(f"INFO: Otrzymano nieudaną płatność dla {payment_internal_id}, prawdopodobnie przedłużenie z wygasłą sesją Redis. Ignorowanie.")
+                
+                consumer.commit()
+
+            except Exception as e:
+                print(f"FATAL: Wystąpił nieoczekiwany błąd w konsumerze płatności: {e}")
+                db.rollback()
 
 
 
 MEMBERSHIP_PRICES = {
     "1m": 1.0,
     "3m": 3.0,
-    "12m": 12.0
+    "12m": 12.26
 }
 
 
@@ -159,13 +182,14 @@ async def buy_membership(
 
     if existing_membership:
         if existing_membership.status in ["paid", "active"]:
+            print(f"Klient już ma aktywny lub opłacony karnet.")
             raise HTTPException(status_code=400, detail="Klient już ma aktywny lub opłacony karnet.")
         
         if existing_membership.status == "created":
             if existing_membership.redirect_url:
-                print(f"Istnieje karnet dla {email} z redirect URL")
+                print(f"Istnieje karnet dla {email} z redirect URL: {existing_membership.redirect_url}")
                 return BuyMembershipResponse(
-                    message="Płatność dla tego karnetu została już utworzona. Przekierowuję do płatności.",
+                    message="Płatność dla tego karnetu została już utworzona",
                     membership=MembershipResponse(email=email, status="created"),
                     redirect=existing_membership.redirect_url
                 )
@@ -178,7 +202,7 @@ async def buy_membership(
         print(f"Istnieje karnet dla {email} ze statusem: {existing_membership.status}.")
         raise HTTPException(
             status_code=409,
-            detail=f"Istnieje już karnet dla tego emaila ze statusem '{existing_membership.status}', który uniemożliwia nową transakcję. Skontaktuj się z obsługą."
+            detail=f"Istnieje już karnet dla tego emaila ze statusem '{existing_membership.status}', który uniemożliwia nową transakcję."
         )
     
     print(f"Tworze nowy karnet dla {email}, typ: {type.value}")
@@ -211,6 +235,7 @@ async def buy_membership(
     except Exception as e:
         crud.delete_membership_by_email(db, email)
         db.commit()
+        print(f"Błąd przy tworzeniu płatności, usuwam karnet dla: {email}")
         raise HTTPException(status_code=500, detail=f"Błąd przy tworzeniu płatności: {e}")
 
     fut = loop.create_future()
@@ -232,6 +257,7 @@ async def buy_membership(
             redirect=redirect_url_from_event
         )
     except asyncio.TimeoutError:
+        print(f"Płatność dla karnetu {internal_id} jest przetwarzana. Link do płatności zostanie udostępniony wkrótce. Spróbuj ponownie za chwilę.")
         raise HTTPException(
             status_code=202,
             detail=f"Płatność dla karnetu {internal_id} jest przetwarzana. Link do płatności zostanie udostępniony wkrótce. Spróbuj ponownie za chwilę."
@@ -243,6 +269,7 @@ async def buy_membership(
 def verify_membership(email: str, db: Session = Depends(get_db)):
     membership = crud.get_membership_by_email(db, email)
     if not membership:
+        print(f"Nie znaleziono karnetu dla podanego emaila.")
         raise HTTPException(status_code=404, detail="Nie znaleziono karnetu dla podanego emaila.")
     
     if membership.status == "paid":
@@ -257,9 +284,11 @@ def verify_membership(email: str, db: Session = Depends(get_db)):
                 membership.expiration_date = membership.purchase_date + relativedelta(months=12)
             else:
                 db.rollback()
+                print(f"Nie można obliczyć daty ważności: nieprawidłowy typ karnetu.")
                 raise HTTPException(status_code=500, detail="Nie można obliczyć daty ważności: nieprawidłowy typ karnetu.")
         else:
             db.rollback()
+            print("Nie można obliczyć daty ważności: brak daty zakupu lub nieprawidłowy typ.")
             raise HTTPException(status_code=500, detail="Nie można obliczyć daty ważności: brak daty zakupu lub nieprawidłowy typ.")
         
         db.commit()

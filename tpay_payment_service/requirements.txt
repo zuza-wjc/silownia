@@ -7,3 +7,4 @@ kafka-python
 python-dotenv
 pydantic[email]
 python-multipart
+jwt

@@ -38,9 +38,8 @@ def update_membership_redirect_url(db: Session, membership_id: int, redirect_url
         membership.redirect_url = redirect_url
         db.commit()
         db.refresh(membership)
-        print(f"Updated redirect_url for membership {membership_id} to {redirect_url}")
         return membership
-    print(f"Failed to find membership {membership_id} to update redirect_url")
+    print(f"Nie znaleziono karnetu o ID {membership_id}")
     return None
 
 
