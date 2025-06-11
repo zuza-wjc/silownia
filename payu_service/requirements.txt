@@ -2,3 +2,4 @@ kafka-python
 jsonschema
 python-dotenv
 requests
+flask

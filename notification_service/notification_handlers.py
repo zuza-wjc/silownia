@@ -1,9 +1,10 @@
 from typing import Any, Callable
 
 topic_translators: dict[str, str | Callable[[Any], str]] = {
-	"payment-status": lambda msg: f"payment-status-{msg.value["status"]}",
-	"reservation-status": lambda msg: f"reservation-{msg.value["status"]}",
-	"class-events": lambda msg: f"class-{msg.value["event"]}",
+	"payment-status": lambda msg: f"payment-status-{msg.value['status']}",
+	"reservation-status": lambda msg: f"reservation-{msg.value['status']}",
+	"class-events": lambda msg: f"class-{msg.value['event']}",
+	"send-mail": "send-mail",
 }
 
 topic_handlers: dict[str, Callable[[dict], dict]] = {
@@ -14,7 +15,7 @@ topic_handlers: dict[str, Callable[[dict], dict]] = {
 		"template": "new_order",
 		"template_values": data
 	},
-	"payment-status-completed": lambda data: {
+	"payment-status-success": lambda data: {
 		"subject": "Potwierdzenie płatności",
 		"to": data.pop("mail"),
 		"template": "order_completed",

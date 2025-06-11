@@ -4,4 +4,4 @@ until nc -z broker 29092; do
   sleep 1
 done
 echo "Kafka dostępna, startuję..."
-uvicorn main:app --host 0.0.0.0 --port 8002 --lifespan on
+uvicorn main:app --host 0.0.0.0 --port 8006 --lifespan on

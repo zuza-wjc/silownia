@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 
 from notification_schemas import topic_schemas
 from notification_handlers import topic_translators, topic_handlers
-
-from notification_schemas import message_schema
 from notification_templates import templates
 
 load_dotenv()
@@ -58,11 +56,14 @@ def send_mail(data: dict):
 	message = build_message(to_str, subject, len(to) == 1)
 	message.add_alternative(body, subtype="html")
 
+	print(f"Building message - subject: {subject}, to: {to}")
+
 	send_message(message, to)
 
 
 def send_message(message: EmailMessage, to: list[str]):
 	try:
+		print("Attempting to send mail message(s)")
 		server = smtplib.SMTP(smtp_server, port)
 		server.starttls(context=ssl.create_default_context())
 		server.login(username, password)
@@ -81,32 +82,41 @@ consumer = KafkaConsumer(
     group_id="send-mail-group"
 )
 
-consumer.subscribe([""])
+topics = list(topic_translators.keys())
+print("[KAFKA] Subscribing topics:", topics)
+
+consumer.subscribe(topics)
 
 for message in consumer:
 	try:
 		topic = message.topic
 		translator = topic_translators.get(topic)
+		print(f"[KAFKA] Got new message in topic: {topic} - attempting to translate topic")
 		if translator:
 			if translator is str:
 				topic = translator
-			elif translator is function:
+			elif callable(translator):
 				topic = translator(message)
 
 		if not topic:
+			print("[KAFKA] Topic translator returned null - abort")
 			continue
 
+		print(f"[KAFKA] Topic translated to: {topic} - attempting validation")
 		validator = topic_schemas.get(topic)
 		if validator:
 			validate(message.value, validator)
 
+		print(f"[KAFKA] Topic validated - looking for handler")
 		handler = topic_handlers.get(topic)
 		if not handler:
 			print(f"Topic '{topic}' has no handler!")
 		else:
+			print(f"[KAFKA] Handler found - passing data")
 			data = handler(message.value)
 			if data:
+				print(f"[KAFKA] Handler done - moving to main functionality")
 				send_mail(data)
 		
 	except Exception as error:
-		print("Error", error)
+		print("Error:", error, traceback.format_exc())

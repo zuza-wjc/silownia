@@ -1,0 +1,42 @@
+_format_version: "3.0"
+
+services:
+  - name: payu-service
+    url: http://payu-service:8007
+    routes:
+      - name: payu-route
+        paths:
+          - /payu
+        strip_path: true
+
+  - name: membership-service
+    url: http://membership-service:8005
+    routes:
+      - name: membership-route
+        paths:
+          - /membership
+        strip_path: true
+
+  - name: tpay-service
+    url: http://tpay-service:8006
+    routes:
+      - name: tpay-route
+        paths:
+          - /tpay
+        strip_path: true
+
+  - name: classes-service
+    url: http://classes-service:8003
+    routes:
+      - name: classes-route
+        paths:
+          - /class
+        strip_path: true
+
+  - name: reservation-service
+    url: http://reservation-service:8004
+    routes:
+      - name: reservation-route
+        paths:
+          - /reservation
+        strip_path: true        

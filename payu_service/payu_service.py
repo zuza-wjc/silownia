@@ -9,6 +9,7 @@ from kafka import KafkaConsumer, KafkaProducer
 
 import payu_database
 from payu_notifications import notification_subject, payment_notifications_loop
+from payu_api import run_api
 from order import Order
 
 load_dotenv()
@@ -118,6 +119,7 @@ def translate_status(status: str) -> str:
 		return "failed"
 
 def produce_udpate(internalId, orderId, payuId, status, **kwargs):
+	print("[KAFKA] Producing update message")
 	producer.send(
 		topic="payment-status",
 		key="PayU",
@@ -134,6 +136,9 @@ def produce_udpate(internalId, orderId, payuId, status, **kwargs):
 kafka_thread = threading.Thread(target=payment_notifications_loop, daemon=True)
 kafka_thread.start()
 
+api_thread = threading.Thread(target=run_api, daemon=True)
+api_thread.start()
+
 consumer = KafkaConsumer(
     "create-payment",
     bootstrap_servers=os.getenv("KAFKA_BROKER"),
@@ -146,7 +151,7 @@ consumer = KafkaConsumer(
 
 for message in consumer:
 	if message.key == "PayU":
-		print("GOT PAYMENT REQUEST")
+		print("[KAFKA] Got new payment request")
 		try:
 			validate(message.value, payment_schema)
 			create_payment(message.value)

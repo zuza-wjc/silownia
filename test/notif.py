@@ -13,11 +13,11 @@ producer.send(
 		"subject": "Testowe powiadomienie",
 		"template": "new_order",
 		"template_values": {
-			"user_name": "Jan Baca",
+			"userName": "Jan Baca",
 			"product": "karnet - 3 miesiące",
-			"order_id": "1325423hjdfhgr",
+			"orderId": "1325423hjdfhgr",
 			"price": "229.99",
-			"payment_url": "https://google.com"
+			"redirect": "https://google.com"
 		}
 	}
 )

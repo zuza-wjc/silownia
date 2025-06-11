@@ -25,6 +25,7 @@ def initialize_database():
 def get_payment_by_order_id(orderId):
 	with lock:
 		cursor = db.cursor()
+		print(f"[DB] SELECT * FROM payments WHERE orderId = {orderId};")
 		result = cursor.execute("SELECT * FROM payments WHERE orderId = ?;", (orderId,)).fetchone()
 		cursor.close()
 		return dict(result)
@@ -32,6 +33,7 @@ def get_payment_by_order_id(orderId):
 def get_payments_by_user_id(userId):
 	with lock:
 		cursor = db.cursor()
+		print(f"[DB] SELECT * FROM payments WHERE userId = {userId};")
 		result = cursor.execute("SELECT * FROM payments WHERE userId = ?;", (userId,)).fetchall()
 		cursor.close()
 		return [dict(row) for row in result]
@@ -39,6 +41,7 @@ def get_payments_by_user_id(userId):
 def insert_payment(orderId, payuId, userId, internalId, amount, mail, userName):
 	with lock:
 		cursor = db.cursor()
+		print(f"[DB] INSERT INTO payments(orderId, payuId, userId, internalId, amount, mail, userName, status) VALUES ({orderId}, {payuId}, {userId}, {internalId}, {amount}, {mail}, {userName}, 'created');")
 		cursor.execute(
 			"INSERT INTO payments(orderId, payuId, userId, internalId, amount, mail, userName, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
 			(orderId, payuId, userId, internalId, amount, mail, userName, "created")
@@ -49,6 +52,7 @@ def insert_payment(orderId, payuId, userId, internalId, amount, mail, userName):
 def update_payment(orderId, status):
 	with lock:
 		cursor = db.cursor()
+		print(f"[DB] UPDATE payments SET status = {status} WHERE orderId = {orderId};")
 		cursor.execute("UPDATE payments SET status = ? WHERE orderId = ?;", (status, orderId))
 		cursor.close()
 		db.commit()
