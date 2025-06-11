@@ -151,6 +151,7 @@ async def make_payment(
 @app.post("/webhook")
 async def tpay_webhook(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
+    print("Webhook payload:", dict(form))
     title = form.get("tr_id")
     status = form.get("tr_status")
 
