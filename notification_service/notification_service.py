@@ -46,17 +46,21 @@ def build_message(to: str, subject: str, single = True) -> EmailMessage:
 def send_mail(data: dict):
 	subject = data["subject"]
 	to = data["to"]
-	to_str = ", ".join(to)
 	body = get_body(data)
+
+	if isinstance(to, str):
+		to = [to]
+
+	to_str = ", ".join(to)
 
 	if not body:
 		print("Failed to send message - no body", data.get("body"), data.get("template"))
 		return
 
+	print(f"Building message - subject: {subject}, to: {to}")
 	message = build_message(to_str, subject, len(to) == 1)
 	message.add_alternative(body, subtype="html")
 
-	print(f"Building message - subject: {subject}, to: {to}")
 
 	send_message(message, to)
 
@@ -93,7 +97,7 @@ for message in consumer:
 		translator = topic_translators.get(topic)
 		print(f"[KAFKA] Got new message in topic: {topic} - attempting to translate topic")
 		if translator:
-			if translator is str:
+			if isinstance(translator, str):
 				topic = translator
 			elif callable(translator):
 				topic = translator(message)
