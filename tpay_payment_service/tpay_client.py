@@ -1,6 +1,10 @@
+import os
 import requests
 from requests.auth import HTTPBasicAuth
-from config import TPAY_CLIENT_ID, TPAY_CLIENT_SECRET, TPAY_API_URL
+
+TPAY_CLIENT_ID = os.getenv("TPAY_CLIENT_ID")
+TPAY_CLIENT_SECRET = os.getenv("TPAY_CLIENT_SECRET")
+TPAY_API_URL = os.getenv("TPAY_API_URL")
 
 class TPayClient:
     def __init__(self):
